@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>포레지아 진행률 시스템</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0f1117;--s:#1a1d27;--s2:#222636;--s3:#2a2f45;
+  --bd:rgba(255,255,255,.07);--bd2:rgba(255,255,255,.14);
+  --tx:#e8eaf0;--tx2:#8b91a8;--tx3:#555c78;
+  --blue:#4f8ef7;--blue2:#2563eb;
+  --green:#22c55e;--red:#ef4444;--amber:#f59e0b;--teal:#14b8a6;--purple:#a78bfa;
+  --r:12px;--rs:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--tx);font-size:14px}
+
+/* ── Topbar ── */
+.topbar{height:56px;background:var(--s);border-bottom:1px solid var(--bd);
+  display:flex;align-items:center;padding:0 24px;gap:12px;position:sticky;top:0;z-index:300}
+.logo{font-size:16px;font-weight:700;letter-spacing:-.3px}
+.logo em{color:var(--blue);font-style:normal}
+.pill{font-size:11px;background:rgba(79,142,247,.15);color:var(--blue);
+  border:1px solid rgba(79,142,247,.3);padding:2px 10px;border-radius:20px}
+.tr{margin-left:auto;display:flex;align-items:center;gap:8px}
+.conn-dot{width:8px;height:8px;border-radius:50%;background:var(--tx3);flex-shrink:0;transition:background .3s}
+.conn-dot.ok{background:var(--green);box-shadow:0 0 5px var(--green)}
+.conn-dot.err{background:var(--red)}
+.conn-txt{font-size:12px;color:var(--tx2)}
+.name-badge{font-size:12px;background:var(--s2);border:1px solid var(--bd2);
+  padding:4px 12px;border-radius:20px;cursor:pointer;color:var(--tx2)}
+.name-badge:hover{border-color:var(--blue);color:var(--tx)}
+
+/* ── Nav tabs ── */
+.nav{background:var(--s);border-bottom:1px solid var(--bd);
+  display:flex;padding:0 24px;gap:2px;overflow-x:auto}
+.nav-tab{padding:12px 18px;font-size:13px;font-weight:500;color:var(--tx3);
+  border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;
+  background:none;border-top:none;border-left:none;border-right:none;
+  font-family:inherit;transition:all .14s}
+.nav-tab:hover{color:var(--tx2)}
+.nav-tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+
+/* ── Layout ── */
+.page{display:none;padding:24px;flex-direction:column;gap:18px;animation:fi .2s ease}
+.page.active{display:flex}
+@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 15px;border-radius:var(--rs);
+  border:1px solid var(--bd2);background:transparent;color:var(--tx);font-size:13px;
+  cursor:pointer;font-family:inherit;transition:all .14s;white-space:nowrap}
+.btn:hover{background:var(--s3)}
+.btn.p{background:var(--blue2);border-color:var(--blue2);color:#fff}
+.btn.p:hover{background:#1d4ed8}
+.btn.g{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.3);color:var(--green)}
+.btn.g:hover{background:rgba(34,197,94,.2)}
+.btn.r{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:var(--red)}
+.btn.r:hover{background:rgba(239,68,68,.2)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Cards ── */
+.cgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card{background:var(--s);border:1px solid var(--bd);border-radius:var(--r);padding:16px 18px}
+.cl{font-size:11px;color:var(--tx3);font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px}
+.cv{font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:-1px;line-height:1.05}
+.cv.b{color:var(--blue)}.cv.g{color:var(--green)}.cv.a{color:var(--amber)}.cv.r{color:var(--red)}
+.cs{font-size:11px;color:var(--tx3);margin-top:6px}
+
+/* ── Panels ── */
+.panel{background:var(--s);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden}
+.ph{padding:13px 18px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.pt{font-size:13px;font-weight:700}
+.pb{padding:16px}
+.tag{display:inline-block;font-size:10px;padding:2px 9px;border-radius:20px;font-weight:600}
+.tag.b{background:rgba(79,142,247,.15);color:var(--blue);border:1px solid rgba(79,142,247,.25)}
+.tag.g{background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.25)}
+.tag.a{background:rgba(245,158,11,.12);color:var(--amber);border:1px solid rgba(245,158,11,.25)}
+.tc{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.cw{position:relative;width:100%;height:236px}
+.cw.sm{height:200px}
+
+/* ── Progress bars ── */
+.pgrid{display:grid;gap:11px}
+.pi{display:grid;grid-template-columns:100px 1fr 52px;gap:8px;align-items:center}
+.pn{font-size:12px;font-weight:600;color:var(--tx2)}
+.pb2{height:8px;background:var(--s3);border-radius:4px;overflow:hidden}
+.pf{height:100%;border-radius:4px;transition:width .5s cubic-bezier(.4,0,.2,1)}
+.pp{font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace;text-align:right}
+
+/* ── Tables ── */
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font-size:11px;color:var(--tx3);font-weight:600;text-align:right;padding:8px 12px;
+  border-bottom:1px solid var(--bd);white-space:nowrap}
+.tbl th:first-child{text-align:left}
+.tbl td{padding:8px 12px;border-bottom:1px solid var(--bd);font-size:12px;text-align:right;
+  font-family:'JetBrains Mono',monospace;color:var(--tx2)}
+.tbl td:first-child{text-align:left;font-family:'Noto Sans KR',sans-serif;font-weight:500;color:var(--tx);font-size:13px}
+.tbl tr.tot td{background:var(--s2);color:var(--tx);font-weight:700;border-bottom:none}
+.tbl .pos{color:var(--green)}.tbl .neg{color:var(--red)}
+.tbl tbody tr:last-child td{border-bottom:none}
+.tbl tbody tr:hover td{background:rgba(255,255,255,.02)}
+
+/* ── Form inputs ── */
+.form-grid{display:grid;gap:10px}
+.fg2{grid-template-columns:1fr 1fr}
+.fg3{grid-template-columns:1fr 1fr 1fr}
+.fg4{grid-template-columns:1fr 1fr 1fr 1fr}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;color:var(--tx2);font-weight:500}
+.field input,.field select,.field textarea{
+  padding:8px 10px;background:var(--s2);border:1px solid var(--bd2);
+  border-radius:var(--rs);color:var(--tx);font-size:13px;font-family:inherit;outline:none;
+  transition:border .14s;width:100%}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--blue)}
+.field input[type=number]{font-family:'JetBrains Mono',monospace}
+.field textarea{resize:vertical;min-height:72px}
+
+/* ── Editable table ── */
+.etbl{width:100%;border-collapse:collapse}
+.etbl th{font-size:11px;color:var(--tx3);font-weight:600;padding:8px 10px;
+  border-bottom:1px solid var(--bd);text-align:left;white-space:nowrap}
+.etbl td{padding:5px 6px;border-bottom:1px solid var(--bd)}
+.etbl tbody tr:hover td{background:rgba(255,255,255,.02)}
+.etbl input{width:100%;padding:5px 8px;background:var(--s2);border:1px solid transparent;
+  border-radius:6px;color:var(--tx);font-size:12px;font-family:'JetBrains Mono',monospace;outline:none}
+.etbl input:focus{border-color:var(--blue);background:var(--s3)}
+.etbl .nm-cell{font-family:'Noto Sans KR',sans-serif;font-weight:500;font-size:13px;color:var(--tx);padding:5px 10px}
+.etbl tr.tot td{background:var(--s2);font-weight:700}
+
+/* ── Comments ── */
+.comment-list{display:flex;flex-direction:column;gap:10px;max-height:360px;overflow-y:auto}
+.comment-item{background:var(--s2);border:1px solid var(--bd);border-radius:var(--rs);padding:12px 14px}
+.comment-meta{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.comment-author{font-size:12px;font-weight:700;color:var(--blue)}
+.comment-section{font-size:10px;padding:1px 7px;border-radius:10px;
+  background:var(--s3);color:var(--tx3)}
+.comment-time{font-size:11px;color:var(--tx3);margin-left:auto}
+.comment-text{font-size:13px;color:var(--tx2);line-height:1.6}
+.comment-empty{text-align:center;padding:32px;color:var(--tx3);font-size:13px}
+
+/* ── Activity log ── */
+.log-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd);align-items:flex-start}
+.log-item:last-child{border-bottom:none}
+.log-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);margin-top:4px;flex-shrink:0}
+.log-txt{font-size:12px;color:var(--tx2);flex:1;line-height:1.5}
+.log-time{font-size:11px;color:var(--tx3);white-space:nowrap}
+
+/* ── Realtime indicator ── */
+.rt-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;
+  background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);
+  color:var(--green);padding:3px 10px;border-radius:20px}
+.rt-dot{width:6px;height:6px;border-radius:50%;background:var(--green);
+  animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── Setup screen ── */
+.setup-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:calc(100vh - 56px);padding:32px;gap:24px}
+.setup-card{background:var(--s);border:1px solid var(--bd);border-radius:var(--r);
+  padding:32px;max-width:540px;width:100%}
+.setup-title{font-size:20px;font-weight:700;margin-bottom:6px}
+.setup-sub{font-size:13px;color:var(--tx2);margin-bottom:24px;line-height:1.7}
+.setup-step{display:flex;gap:12px;margin-bottom:14px;align-items:flex-start}
+.step-num{width:24px;height:24px;border-radius:50%;background:var(--blue2);color:#fff;
+  font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.step-body{flex:1}
+.step-label{font-size:13px;font-weight:600;color:var(--tx);margin-bottom:4px}
+.step-desc{font-size:12px;color:var(--tx2);line-height:1.6}
+.code-block{background:var(--s3);border:1px solid var(--bd2);border-radius:var(--rs);
+  padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:12px;
+  color:var(--teal);margin-top:6px;word-break:break-all;cursor:pointer;position:relative}
+.code-block:hover::after{content:'복사';position:absolute;right:8px;top:50%;
+  transform:translateY(-50%);font-size:10px;background:var(--blue2);color:#fff;
+  padding:2px 8px;border-radius:4px;font-family:'Noto Sans KR',sans-serif}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:24px;right:24px;padding:11px 18px;border-radius:var(--rs);
+  font-size:13px;font-weight:500;z-index:9999;animation:su .25s ease;
+  display:flex;align-items:center;gap:7px;max-width:340px}
+.toast.s{background:#166534;color:#bbf7d0;border:1px solid #16a34a}
+.toast.e{background:#7f1d1d;color:#fecaca;border:1px solid #dc2626}
+.toast.i{background:#1e3a5f;color:#bfdbfe;border:1px solid #3b82f6}
+@keyframes su{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ── Name modal ── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;
+  display:flex;align-items:center;justify-content:center}
+.modal{background:var(--s);border:1px solid var(--bd2);border-radius:var(--r);
+  padding:28px;width:340px}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:6px}
+.modal-sub{font-size:12px;color:var(--tx2);margin-bottom:18px}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--s3);border-radius:3px}
+
+/* ── Responsive ── */
+@media(max-width:860px){.cgrid{grid-template-columns:1fr 1fr}.tc{grid-template-columns:1fr}}
+@media(max-width:500px){
+  .cgrid{grid-template-columns:1fr}
+  .topbar,.nav,.page{padding-left:14px;padding-right:14px}
+  .fg2,.fg3,.fg4{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ── SETUP SCREEN (Supabase 미설정 시) ── -->
+<div class="setup-screen" id="setupScreen" style="display:none">
+  <div class="setup-card">
+    <div class="setup-title">⚙️ Supabase 연결 설정</div>
+    <div class="setup-sub">
+      처음 한 번만 설정하면 팀원 전체가 실시간으로 데이터를 공유할 수 있습니다.
+    </div>
+    <div class="setup-step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-label">Supabase 프로젝트 URL</div>
+        <input id="cfgUrl" type="text" placeholder="https://xxxx.supabase.co" style="margin-top:6px;width:100%;padding:8px 10px;background:var(--s2);border:1px solid var(--bd2);border-radius:var(--rs);color:var(--tx);font-size:13px;font-family:inherit;outline:none">
+      </div>
+    </div>
+    <div class="setup-step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-label">Supabase anon (public) key</div>
+        <input id="cfgKey" type="text" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="margin-top:6px;width:100%;padding:8px 10px;background:var(--s2);border:1px solid var(--bd2);border-radius:var(--rs);color:var(--tx);font-size:13px;font-family:inherit;outline:none">
+        <div style="font-size:11px;color:var(--tx3);margin-top:4px">Supabase 대시보드 → Project Settings → API → anon public key</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px">
+      <button class="btn p" onclick="saveConfig()" style="flex:1">연결 저장 및 시작</button>
+    </div>
+    <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--bd)">
+      <div style="font-size:12px;color:var(--tx3);margin-bottom:8px">⚡ SQL 스키마를 먼저 실행했나요?</div>
+      <div style="font-size:12px;color:var(--tx2)">sql/01_schema.sql 파일을 Supabase SQL Editor에서 실행한 뒤 위 정보를 입력하세요.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MAIN APP ── -->
+<div id="app" style="display:none">
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="logo">포레지아 <em>진행률</em> 시스템</div>
+  <div class="pill">팀 공유 · 실시간</div>
+  <div class="tr">
+    <div class="rt-badge" id="rtBadge" style="display:none">
+      <div class="rt-dot"></div>실시간 연결
+    </div>
+    <div class="conn-dot" id="connDot"></div>
+    <div class="conn-txt" id="connTxt">연결 중…</div>
+    <div class="name-badge" id="nameBadge" onclick="showNameModal()">👤 <span id="nameDisplay">이름 설정</span></div>
+    <button class="btn" onclick="showSetup()" style="padding:5px 10px;font-size:12px">⚙️</button>
+  </div>
+</div>
+
+<!-- Nav -->
+<div class="nav">
+  <button class="nav-tab active" onclick="gotoPage('dashboard',this)">📊 대시보드</button>
+  <button class="nav-tab" onclick="gotoPage('input',this)">✏️ 데이터 입력</button>
+  <button class="nav-tab" onclick="gotoPage('review',this)">🔍 검토·코멘트</button>
+  <button class="nav-tab" onclick="gotoPage('history',this)">📋 변경 이력</button>
+</div>
+
+<!-- ── PAGE: 대시보드 ── -->
+<div class="page active" id="page-dashboard">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <div>
+      <div style="font-size:18px;font-weight:700" id="dash-title">—</div>
+      <div style="font-size:12px;color:var(--tx3);margin-top:2px" id="dash-sub">로딩 중…</div>
+    </div>
+    <button class="btn g" onclick="loadAll()">
+      <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-5"/></svg>새로고침
+    </button>
+  </div>
+  <div class="cgrid" id="dash-cards">
+    <div class="card"><div class="cl">공사 진행율</div><div class="cv b">—</div></div>
+    <div class="card"><div class="cl">총 세대수</div><div class="cv g">—</div></div>
+    <div class="card"><div class="cl">누계 매출</div><div class="cv a">—</div></div>
+    <div class="card"><div class="cl">매출 총이익</div><div class="cv">—</div></div>
+  </div>
+  <div class="tc">
+    <div class="panel">
+      <div class="ph"><div class="pt">공사 진행율 추이</div><span class="tag b">연도별 누계(%)</span></div>
+      <div class="pb"><div class="cw"><canvas id="cProgress" role="img" aria-label="공사진행율"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><div class="pt">평형별 분양금 비중</div><span class="tag g">금액 기준</span></div>
+      <div class="pb"><div class="pgrid" id="dash-types"></div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ph"><div class="pt">연도별 매출 · 원가 · 이익</div><span class="tag a">억원 단위</span></div>
+    <div class="pb"><div class="cw"><canvas id="cRevenue" role="img" aria-label="매출원가"></canvas></div></div>
+  </div>
+  <div class="tc">
+    <div class="panel">
+      <div class="ph"><div class="pt">평형별 분양 현황</div></div>
+      <div style="overflow-x:auto"><table class="tbl" id="dash-type-tbl">
+        <thead><tr><th>평형</th><th>세대</th><th>분양금(억)</th><th>확장(억)</th><th>상가(억)</th><th>합계(억)</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><div class="pt">연도별 손익</div></div>
+      <div style="overflow-x:auto"><table class="tbl" id="dash-pl-tbl">
+        <thead><tr><th>구분</th><th>1차년</th><th>2차년</th><th>누계</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+  </div>
+  <div class="tc">
+    <div class="panel">
+      <div class="ph"><div class="pt">원가 구성 비율</div></div>
+      <div class="pb"><div class="cw sm"><canvas id="cCost" role="img" aria-label="원가구성"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><div class="pt">예정 원가 상세</div></div>
+      <div class="pb" id="dash-costs"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PAGE: 데이터 입력 ── -->
+<div class="page" id="page-input">
+  <div style="font-size:16px;font-weight:700">✏️ 데이터 입력</div>
+
+  <!-- 현장 기본정보 -->
+  <div class="panel">
+    <div class="ph"><div class="pt">현장 기본정보</div>
+      <button class="btn p" onclick="saveBasic()">
+        <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>저장
+      </button>
+    </div>
+    <div class="pb">
+      <div class="form-grid fg2">
+        <div class="field"><label>현장명</label><input id="in_name" type="text"></div>
+        <div class="field"><label>시행사</label><input id="in_company" type="text"></div>
+        <div class="field"><label>기준연도</label><input id="in_year" type="number"></div>
+        <div class="field"><label>기준월</label><input id="in_month" type="number" min="1" max="12"></div>
+        <div class="field"><label>전체 연면적 (㎡)</label><input id="in_area" type="number"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 연도별 진행률 -->
+  <div class="panel">
+    <div class="ph">
+      <div class="pt">연도별 공사진행율 · 매출 · 원가</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="addYearRow()">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>연도 추가
+        </button>
+        <button class="btn p" onclick="saveYears()">
+          <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>저장
+        </button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="etbl" id="year-tbl">
+        <thead><tr>
+          <th>년도</th><th>공사진행율(%)</th><th>매출액(억)</th><th>원가(억)</th><th>비고</th><th></th>
+        </tr></thead>
+        <tbody id="year-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 평형별 세대·분양 -->
+  <div class="panel">
+    <div class="ph">
+      <div class="pt">평형별 세대수 · 분양금액</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="addTypeRow()">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>평형 추가
+        </button>
+        <button class="btn p" onclick="saveTypes()">
+          <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>저장
+        </button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="etbl" id="type-tbl">
+        <thead><tr>
+          <th>평형명</th><th>세대수</th><th>분양금(억)</th><th>확장옵션(억)</th><th>상가(억)</th><th>비고</th><th></th>
+        </tr></thead>
+        <tbody id="type-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 예정 원가 -->
+  <div class="panel">
+    <div class="ph">
+      <div class="pt">예정 원가</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="addCostRow()">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>항목 추가
+        </button>
+        <button class="btn p" onclick="saveCosts()">
+          <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>저장
+        </button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="etbl" id="cost-tbl">
+        <thead><tr><th>원가 항목</th><th>금액(억)</th><th>비고</th><th></th></tr></thead>
+        <tbody id="cost-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── PAGE: 검토·코멘트 ── -->
+<div class="page" id="page-review">
+  <div style="font-size:16px;font-weight:700">🔍 검토 · 코멘트</div>
+  <div class="tc">
+    <div class="panel">
+      <div class="ph"><div class="pt">코멘트 작성</div></div>
+      <div class="pb">
+        <div class="form-grid" style="gap:12px">
+          <div class="field">
+            <label>섹션 선택</label>
+            <select id="cmt-section">
+              <option value="general">전체</option>
+              <option value="progress">공사 진행률</option>
+              <option value="types">평형·분양</option>
+              <option value="costs">원가</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>내용</label>
+            <textarea id="cmt-content" placeholder="검토 의견이나 수정 요청 사항을 입력하세요…"></textarea>
+          </div>
+          <button class="btn p" onclick="submitComment()">
+            <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>코멘트 등록
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph">
+        <div class="pt">코멘트 목록</div>
+        <button class="btn" onclick="loadComments()" style="font-size:12px;padding:5px 10px">새로고침</button>
+      </div>
+      <div class="pb">
+        <div class="comment-list" id="comment-list">
+          <div class="comment-empty">코멘트가 없습니다</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PAGE: 변경 이력 ── -->
+<div class="page" id="page-history">
+  <div style="font-size:16px;font-weight:700">📋 변경 이력</div>
+  <div class="panel">
+    <div class="ph">
+      <div class="pt">최근 업데이트 현황</div>
+      <span class="tag g">실시간</span>
+    </div>
+    <div class="pb" id="history-list">
+      <div style="text-align:center;padding:32px;color:var(--tx3)">로딩 중…</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- #app -->
+
+<!-- NAME MODAL -->
+<div class="modal-bg" id="nameModal" style="display:none" onclick="if(event.target===this)hideNameModal()">
+  <div class="modal">
+    <div class="modal-title">이름 설정</div>
+    <div class="modal-sub">저장·코멘트 시 표시될 이름을 입력하세요</div>
+    <div class="field" style="margin-bottom:14px">
+      <input id="nameInput" type="text" placeholder="예: 홍길동" maxlength="20">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn p" onclick="saveName()" style="flex:1">확인</button>
+      <button class="btn" onclick="hideNameModal()">취소</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════
+//  CONFIG — localStorage에 저장
+// ══════════════════════════════════════════════════
+let SB = null;
+let myName = localStorage.getItem('pf_name') || '익명';
+let charts = {};
+
+function getConfig(){ return JSON.parse(localStorage.getItem('pf_config')||'{}'); }
+function saveConfig(){
+  const url = document.getElementById('cfgUrl').value.trim();
+  const key = document.getElementById('cfgKey').value.trim();
+  if(!url||!key){ toast('URL과 Key를 모두 입력하세요','e'); return; }
+  localStorage.setItem('pf_config', JSON.stringify({url,key}));
+  initSupabase(url, key);
+}
+function showSetup(){
+  document.getElementById('app').style.display='none';
+  document.getElementById('setupScreen').style.display='flex';
+  const cfg=getConfig();
+  if(cfg.url) document.getElementById('cfgUrl').value=cfg.url;
+  if(cfg.key) document.getElementById('cfgKey').value=cfg.key;
+}
+
+// ══════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('nameDisplay').textContent = myName;
+  const cfg = getConfig();
+  if(cfg.url && cfg.key){ initSupabase(cfg.url, cfg.key); }
+  else { document.getElementById('setupScreen').style.display='flex'; }
+});
+
+function initSupabase(url, key){
+  try{
+    SB = supabase.createClient(url, key);
+    document.getElementById('setupScreen').style.display='none';
+    document.getElementById('app').style.display='block';
+    setConn('connecting','연결 중…');
+    loadAll();
+    subscribeRealtime();
+  } catch(e){ toast('Supabase 초기화 오류: '+e.message,'e'); }
+}
+
+// ══════════════════════════════════════════════════
+//  CONNECTION STATUS
+// ══════════════════════════════════════════════════
+function setConn(state, txt){
+  const dot=document.getElementById('connDot');
+  const t=document.getElementById('connTxt');
+  dot.className='conn-dot'+(state==='ok'?' ok':state==='err'?' err':'');
+  t.textContent=txt;
+}
+
+// ══════════════════════════════════════════════════
+//  REALTIME SUBSCRIPTION
+// ══════════════════════════════════════════════════
+function subscribeRealtime(){
+  SB.channel('pf-changes')
+    .on('postgres_changes',{event:'*',schema:'public'},(payload)=>{
+      document.getElementById('rtBadge').style.display='inline-flex';
+      toast('📡 '+payload.table+' 데이터가 팀원에 의해 변경됨','i');
+      loadAll();
+    })
+    .subscribe((status)=>{
+      if(status==='SUBSCRIBED'){
+        setConn('ok','실시간 연결됨');
+        document.getElementById('rtBadge').style.display='inline-flex';
+      }
+    });
+}
+
+// ══════════════════════════════════════════════════
+//  DATA LOAD
+// ══════════════════════════════════════════════════
+let DATA = { info:{}, types:[], years:[], costs:[] };
+
+async function loadAll(){
+  try{
+    const [r1,r2,r3,r4] = await Promise.all([
+      SB.from('project_info').select('*').order('id').limit(1),
+      SB.from('unit_types').select('*').order('sort_order'),
+      SB.from('yearly_progress').select('*').order('fiscal_year'),
+      SB.from('cost_items').select('*').order('sort_order'),
+    ]);
+    if(r1.error||r2.error||r3.error||r4.error) throw new Error('데이터 로드 오류');
+    DATA.info  = r1.data[0] || {};
+    DATA.types = r2.data || [];
+    DATA.years = r3.data || [];
+    DATA.costs = r4.data || [];
+    setConn('ok','연결됨 · '+new Date().toLocaleTimeString('ko-KR'));
+    renderDashboard();
+    renderInputForms();
+    renderHistory();
+  } catch(e){
+    setConn('err','연결 오류');
+    toast('데이터 로드 실패: '+e.message,'e');
+  }
+}
+
+async function loadComments(){
+  const {data,error}=await SB.from('comments').select('*').order('created_at',{ascending:false}).limit(50);
+  if(error){ toast('코멘트 로드 실패','e'); return; }
+  renderComments(data||[]);
+}
+
+// ══════════════════════════════════════════════════
+//  DASHBOARD RENDER
+// ══════════════════════════════════════════════════
+const C6=['#4f8ef7','#22c55e','#14b8a6','#f59e0b','#a78bfa','#f472b6'];
+function fa(v){ return v>=10000?(v/10000).toFixed(1)+'조':Math.round(v||0).toLocaleString()+'억'; }
+function fp(v){ return (v||0).toFixed(2)+'%'; }
+function fn2(v){ return (v||0).toFixed(1); }
+
+function renderDashboard(){
+  const D=DATA;
+  const info=D.info;
+  const latP=D.years.length?Math.max(...D.years.map(y=>y.progress||0),0):0;
+  const totU=D.types.reduce((a,t)=>a+(t.units||0),0);
+  const totR=D.years.reduce((a,y)=>a+(y.revenue||0),0);
+  const totC=D.years.reduce((a,y)=>a+(y.cost||0),0);
+  const totPr=totR-totC;
+  const mRate=totR>0?totPr/totR*100:0;
+  const totPrice=D.types.reduce((a,t)=>a+(t.price_100m||0)+(t.ext_100m||0)+(t.shop_100m||0),0);
+
+  // 헤더
+  document.getElementById('dash-title').textContent=(info.name||'—')+' · '+(info.company||'—');
+  document.getElementById('dash-sub').textContent=`기준: ${info.base_year||'—'}년 ${info.base_month||'—'}월 · 연면적 ${(info.total_area||0).toLocaleString()}㎡`;
+
+  // 카드
+  document.getElementById('dash-cards').innerHTML=`
+    <div class="card"><div class="cl">공사 진행율 (누계)</div><div class="cv b">${fp(latP)}</div><div class="cs">${info.base_year||'—'}년 ${info.base_month||'—'}월 기준</div></div>
+    <div class="card"><div class="cl">총 세대수</div><div class="cv g">${totU.toLocaleString()}</div><div class="cs">평형 ${D.types.length}종</div></div>
+    <div class="card"><div class="cl">누계 매출액</div><div class="cv a">${fa(totR)}</div><div class="cs">원가 ${fa(totC)}</div></div>
+    <div class="card"><div class="cl">매출 총이익</div><div class="cv ${totPr>=0?'g':'r'}">${totPr>=0?'':'-'}${fa(Math.abs(totPr))}</div><div class="cs">이익율 ${mRate.toFixed(1)}%</div></div>`;
+
+  // 평형 비중 바
+  const tEl=document.getElementById('dash-types');
+  tEl.innerHTML='';
+  D.types.forEach((t,i)=>{
+    const amt=(t.price_100m||0)+(t.ext_100m||0)+(t.shop_100m||0);
+    const p=totPrice>0?Math.min(100,amt/totPrice*100):0;
+    tEl.innerHTML+=`<div class="pi">
+      <div class="pn">${t.type_name}<span style="font-size:10px;color:var(--tx3);margin-left:3px">(${t.units})</span></div>
+      <div class="pb2"><div class="pf" style="width:${p.toFixed(1)}%;background:${C6[i%6]}"></div></div>
+      <div class="pp" style="color:${C6[i%6]}">${p.toFixed(1)}%</div></div>`;
+  });
+
+  // 평형 테이블
+  const ttb=document.querySelector('#dash-type-tbl tbody');
+  let sP=0,sE=0,sS=0,sT=0,sU=0;
+  ttb.innerHTML='';
+  D.types.forEach(t=>{
+    const tot=(t.price_100m||0)+(t.ext_100m||0)+(t.shop_100m||0);
+    sP+=t.price_100m||0;sE+=t.ext_100m||0;sS+=t.shop_100m||0;sT+=tot;sU+=t.units||0;
+    ttb.innerHTML+=`<tr><td>${t.type_name}</td><td>${(t.units||0).toLocaleString()}</td>
+      <td>${fn2(t.price_100m)}</td><td>${fn2(t.ext_100m)}</td><td>${fn2(t.shop_100m)}</td><td>${fn2(tot)}</td></tr>`;
+  });
+  ttb.innerHTML+=`<tr class="tot"><td>합계</td><td>${sU.toLocaleString()}</td>
+    <td>${fn2(sP)}</td><td>${fn2(sE)}</td><td>${fn2(sS)}</td><td>${fn2(sT)}</td></tr>`;
+
+  // 손익 테이블
+  const ay=D.years.filter(y=>(y.revenue||0)>0||(y.cost||0)>0);
+  const y1=ay[0]||{fiscal_year:'—',revenue:0,cost:0};
+  const y2=ay[1]||{fiscal_year:'—',revenue:0,cost:0};
+  const p1=(y1.revenue||0)-(y1.cost||0),p2=(y2.revenue||0)-(y2.cost||0);
+  const pltb=document.querySelector('#dash-pl-tbl tbody');
+  const th=document.querySelectorAll('#dash-pl-tbl thead th');
+  if(th[1]) th[1].textContent=y1.fiscal_year+'년';
+  if(th[2]) th[2].textContent=y2.fiscal_year+'년';
+  pltb.innerHTML=`
+    <tr><td>매출액</td><td>${(y1.revenue||0).toLocaleString()}</td><td>${(y2.revenue||0).toLocaleString()}</td><td>${totR.toLocaleString()}</td></tr>
+    <tr><td>원가</td><td>${(y1.cost||0).toLocaleString()}</td><td>${(y2.cost||0).toLocaleString()}</td><td>${totC.toLocaleString()}</td></tr>
+    <tr><td>매출총이익</td>
+      <td class="${p1>=0?'pos':'neg'}">${p1>=0?'▲':'▼'} ${Math.abs(p1).toLocaleString()}</td>
+      <td class="${p2>=0?'pos':'neg'}">${p2>=0?'▲':'▼'} ${Math.abs(p2).toLocaleString()}</td>
+      <td class="${totPr>=0?'pos':'neg'}">${totPr>=0?'▲':'▼'} ${Math.abs(totPr).toLocaleString()}</td>
+    </tr>
+    <tr class="tot"><td>이익율</td>
+      <td>${(y1.revenue||0)>0?(p1/(y1.revenue)*100).toFixed(1)+'%':'—'}</td>
+      <td>${(y2.revenue||0)>0?(p2/(y2.revenue)*100).toFixed(1)+'%':'—'}</td>
+      <td>${totR>0?(totPr/totR*100).toFixed(1)+'%':'—'}</td>
+    </tr>`;
+
+  // 원가 상세
+  const ce=D.costs;
+  const ctot=ce.reduce((a,c)=>a+(c.amount||0),0);
+  let dh=ce.map(c=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--bd)">
+    <span style="font-size:13px;color:var(--tx2)">${c.item_name}</span>
+    <span style="font-size:13px;font-family:'JetBrains Mono',monospace">${(c.amount||0).toLocaleString()}억원</span></div>`).join('');
+  dh+=`<div style="display:flex;justify-content:space-between;padding:11px 0 0;border-top:1px solid var(--bd2)">
+    <span style="font-weight:700">합계</span>
+    <span style="font-weight:700;color:var(--blue);font-family:'JetBrains Mono',monospace">${ctot.toLocaleString()}억원</span></div>`;
+  document.getElementById('dash-costs').innerHTML=dh;
+
+  // 차트
+  setTimeout(()=>{ drawCharts(D,totP=>totP); },60);
+}
+
+function drawCharts(D){
+  const totR=D.years.reduce((a,y)=>a+(y.revenue||0),0);
+  const totC=D.years.reduce((a,y)=>a+(y.cost||0),0);
+
+  if(charts.p) charts.p.destroy();
+  charts.p=new Chart(document.getElementById('cProgress'),{
+    type:'bar',data:{labels:D.years.map(y=>y.fiscal_year+'년'),datasets:[
+      {type:'line',label:'누계',data:D.years.map(y=>y.progress>0?y.progress:null),
+       borderColor:'#4f8ef7',borderWidth:2,pointRadius:4,pointBackgroundColor:'#4f8ef7',
+       tension:.3,fill:false,spanGaps:false,yAxisID:'y'},
+      {label:'당기',data:D.years.map(y=>y.progress||0),backgroundColor:'rgba(79,142,247,.15)',
+       borderColor:'rgba(79,142,247,.4)',borderWidth:1,borderRadius:4,yAxisID:'y'}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y}%`}}},
+      scales:{x:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#8b91a8',font:{size:11}}},
+        y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#8b91a8',font:{size:11},callback:v=>v+'%'},min:0,max:100}}}
+  });
+
+  if(charts.r) charts.r.destroy();
+  charts.r=new Chart(document.getElementById('cRevenue'),{
+    type:'bar',data:{labels:D.years.map(y=>y.fiscal_year+'년'),datasets:[
+      {label:'매출액',data:D.years.map(y=>y.revenue||0),backgroundColor:'rgba(79,142,247,.7)',borderRadius:4,borderSkipped:false},
+      {label:'원가',data:D.years.map(y=>y.cost||0),backgroundColor:'rgba(245,158,11,.6)',borderRadius:4,borderSkipped:false},
+      {type:'line',label:'이익',data:D.years.map(y=>(y.revenue||0)-(y.cost||0)),
+       borderColor:'#22c55e',borderWidth:2,pointRadius:4,pointBackgroundColor:'#22c55e',tension:.3,fill:false,yAxisID:'y'}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{color:'#8b91a8',font:{size:11},boxWidth:10,padding:10}},
+        tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y.toLocaleString()}억원`}}},
+      scales:{x:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#8b91a8',font:{size:11}}},
+        y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#8b91a8',font:{size:11},callback:v=>v+'억'}}}}
+  });
+
+  const ce=D.costs;
+  if(ce.length){
+    if(charts.c) charts.c.destroy();
+    charts.c=new Chart(document.getElementById('cCost'),{
+      type:'doughnut',data:{labels:ce.map(c=>c.item_name),datasets:[{
+        data:ce.map(c=>c.amount||0),
+        backgroundColor:['#4f8ef7','#14b8a6','#f59e0b','#a78bfa','#f472b6','#22c55e'],borderWidth:0}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:'62%',
+        plugins:{legend:{display:true,position:'right',labels:{color:'#8b91a8',font:{size:11},boxWidth:10,padding:7}},
+          tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);
+            return ` ${c.label}: ${c.parsed.toLocaleString()}억 (${(c.parsed/t*100).toFixed(1)}%)`;
+          }}}}}
+    });
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  INPUT FORMS RENDER
+// ══════════════════════════════════════════════════
+function renderInputForms(){
+  const info=DATA.info;
+  document.getElementById('in_name').value=info.name||'';
+  document.getElementById('in_company').value=info.company||'';
+  document.getElementById('in_year').value=info.base_year||2024;
+  document.getElementById('in_month').value=info.base_month||12;
+  document.getElementById('in_area').value=info.total_area||0;
+
+  // 연도 테이블
+  const ytb=document.getElementById('year-tbody');
+  ytb.innerHTML='';
+  DATA.years.forEach(y=>{
+    ytb.innerHTML+=yearRow(y.id,y.fiscal_year,y.progress,y.revenue,y.cost,y.memo);
+  });
+
+  // 평형 테이블
+  const ttb=document.getElementById('type-tbody');
+  ttb.innerHTML='';
+  DATA.types.forEach(t=>{
+    ttb.innerHTML+=typeRow(t.id,t.type_name,t.units,t.price_100m,t.ext_100m,t.shop_100m,t.memo);
+  });
+
+  // 원가 테이블
+  const ctb=document.getElementById('cost-tbody');
+  ctb.innerHTML='';
+  DATA.costs.forEach(c=>{
+    ctb.innerHTML+=costRow(c.id,c.item_name,c.amount,c.memo);
+  });
+}
+
+function yearRow(id,yr,prog,rev,cost,memo){
+  return `<tr data-id="${id||''}">
+    <td><input type="number" value="${yr||''}" data-f="fiscal_year" style="width:80px"></td>
+    <td><input type="number" step="0.01" value="${prog||''}" data-f="progress" style="width:90px"></td>
+    <td><input type="number" value="${rev||''}" data-f="revenue" style="width:90px"></td>
+    <td><input type="number" value="${cost||''}" data-f="cost" style="width:90px"></td>
+    <td><input type="text" value="${memo||''}" data-f="memo" style="width:120px"></td>
+    <td><button class="btn r" onclick="delRow(this,'yearly_progress')" style="padding:4px 8px;font-size:11px">삭제</button></td>
+  </tr>`;
+}
+function typeRow(id,nm,units,price,ext,shop,memo){
+  return `<tr data-id="${id||''}">
+    <td><input type="text" value="${nm||''}" data-f="type_name" style="width:70px"></td>
+    <td><input type="number" value="${units||''}" data-f="units" style="width:70px"></td>
+    <td><input type="number" step="0.1" value="${price||''}" data-f="price_100m" style="width:90px"></td>
+    <td><input type="number" step="0.1" value="${ext||''}" data-f="ext_100m" style="width:90px"></td>
+    <td><input type="number" step="0.1" value="${shop||''}" data-f="shop_100m" style="width:90px"></td>
+    <td><input type="text" value="${memo||''}" data-f="memo" style="width:100px"></td>
+    <td><button class="btn r" onclick="delRow(this,'unit_types')" style="padding:4px 8px;font-size:11px">삭제</button></td>
+  </tr>`;
+}
+function costRow(id,nm,amt,memo){
+  return `<tr data-id="${id||''}">
+    <td><input type="text" value="${nm||''}" data-f="item_name" style="width:120px"></td>
+    <td><input type="number" step="0.1" value="${amt||''}" data-f="amount" style="width:90px"></td>
+    <td><input type="text" value="${memo||''}" data-f="memo" style="width:120px"></td>
+    <td><button class="btn r" onclick="delRow(this,'cost_items')" style="padding:4px 8px;font-size:11px">삭제</button></td>
+  </tr>`;
+}
+
+function addYearRow(){ document.getElementById('year-tbody').insertAdjacentHTML('beforeend',yearRow('',new Date().getFullYear(),0,0,0,'')); }
+function addTypeRow(){ document.getElementById('type-tbody').insertAdjacentHTML('beforeend',typeRow('','신규',0,0,0,0,'')); }
+function addCostRow(){ document.getElementById('cost-tbody').insertAdjacentHTML('beforeend',costRow('','신규항목',0,'')); }
+
+function rowData(tr){
+  const d={};
+  tr.querySelectorAll('input').forEach(inp=>{ d[inp.dataset.f]=inp.value; });
+  return d;
+}
+
+async function delRow(btn, table){
+  const tr=btn.closest('tr');
+  const id=tr.dataset.id;
+  if(id){
+    const {error}=await SB.from(table).delete().eq('id',id);
+    if(error){ toast('삭제 실패: '+error.message,'e'); return; }
+  }
+  tr.remove();
+  toast('삭제됨','s');
+}
+
+// ── SAVE FUNCTIONS ──
+async function saveBasic(){
+  const payload={
+    name:document.getElementById('in_name').value.trim(),
+    company:document.getElementById('in_company').value.trim(),
+    base_year:+document.getElementById('in_year').value,
+    base_month:+document.getElementById('in_month').value,
+    total_area:+document.getElementById('in_area').value,
+    updated_at:new Date().toISOString(),
+    updated_by:myName,
+  };
+  const id=DATA.info.id;
+  const {error}=id
+    ? await SB.from('project_info').update(payload).eq('id',id)
+    : await SB.from('project_info').insert(payload);
+  if(error){ toast('저장 실패: '+error.message,'e'); return; }
+  toast('현장 기본정보 저장 완료 ✓','s'); loadAll();
+}
+
+async function saveYears(){
+  const rows=[...document.querySelectorAll('#year-tbody tr')];
+  for(const tr of rows){
+    const d=rowData(tr); const id=tr.dataset.id;
+    const payload={fiscal_year:+d.fiscal_year,progress:+d.progress||0,
+      revenue:+d.revenue||0,cost:+d.cost||0,memo:d.memo||'',
+      updated_at:new Date().toISOString(),updated_by:myName};
+    const {error}=id
+      ? await SB.from('yearly_progress').update(payload).eq('id',id)
+      : await SB.from('yearly_progress').insert(payload);
+    if(error){ toast('저장 실패: '+error.message,'e'); return; }
+  }
+  toast('연도별 진행률 저장 완료 ✓','s'); loadAll();
+}
+
+async function saveTypes(){
+  const rows=[...document.querySelectorAll('#type-tbody tr')];
+  for(const [i,tr] of rows.entries()){
+    const d=rowData(tr); const id=tr.dataset.id;
+    const payload={type_name:d.type_name,sort_order:i+1,units:+d.units||0,
+      price_100m:+d.price_100m||0,ext_100m:+d.ext_100m||0,shop_100m:+d.shop_100m||0,
+      memo:d.memo||'',updated_at:new Date().toISOString(),updated_by:myName};
+    const {error}=id
+      ? await SB.from('unit_types').update(payload).eq('id',id)
+      : await SB.from('unit_types').insert(payload);
+    if(error){ toast('저장 실패: '+error.message,'e'); return; }
+  }
+  toast('평형별 분양 정보 저장 완료 ✓','s'); loadAll();
+}
+
+async function saveCosts(){
+  const rows=[...document.querySelectorAll('#cost-tbody tr')];
+  for(const [i,tr] of rows.entries()){
+    const d=rowData(tr); const id=tr.dataset.id;
+    const payload={item_name:d.item_name,sort_order:i+1,amount:+d.amount||0,
+      memo:d.memo||'',updated_at:new Date().toISOString(),updated_by:myName};
+    const {error}=id
+      ? await SB.from('cost_items').update(payload).eq('id',id)
+      : await SB.from('cost_items').insert(payload);
+    if(error){ toast('저장 실패: '+error.message,'e'); return; }
+  }
+  toast('예정 원가 저장 완료 ✓','s'); loadAll();
+}
+
+// ══════════════════════════════════════════════════
+//  COMMENTS
+// ══════════════════════════════════════════════════
+const SEC_LABEL={general:'전체',progress:'공사진행률',types:'평형·분양',costs:'원가'};
+
+async function submitComment(){
+  const section=document.getElementById('cmt-section').value;
+  const content=document.getElementById('cmt-content').value.trim();
+  if(!content){ toast('내용을 입력하세요','e'); return; }
+  const {error}=await SB.from('comments').insert({
+    section,content,author:myName,created_at:new Date().toISOString()
+  });
+  if(error){ toast('코멘트 등록 실패: '+error.message,'e'); return; }
+  document.getElementById('cmt-content').value='';
+  toast('코멘트 등록됨 ✓','s'); loadComments();
+}
+
+function renderComments(list){
+  const el=document.getElementById('comment-list');
+  if(!list.length){ el.innerHTML='<div class="comment-empty">코멘트가 없습니다</div>'; return; }
+  el.innerHTML=list.map(c=>`
+    <div class="comment-item">
+      <div class="comment-meta">
+        <span class="comment-author">👤 ${c.author}</span>
+        <span class="comment-section">${SEC_LABEL[c.section]||c.section}</span>
+        <span class="comment-time">${new Date(c.created_at).toLocaleString('ko-KR')}</span>
+      </div>
+      <div class="comment-text">${c.content.replace(/\n/g,'<br>')}</div>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════
+//  HISTORY
+// ══════════════════════════════════════════════════
+function renderHistory(){
+  const all=[
+    ...DATA.years.map(y=>({time:y.updated_at,who:y.updated_by,txt:`연도별 진행률 (${y.fiscal_year}년) — 진행율 ${y.progress}%, 매출 ${(y.revenue||0).toLocaleString()}억`})),
+    ...DATA.types.map(t=>({time:t.updated_at,who:t.updated_by,txt:`평형 정보 (${t.type_name}) — ${t.units}세대, 분양금 ${(t.price_100m||0).toLocaleString()}억`})),
+    ...DATA.costs.map(c=>({time:c.updated_at,who:c.updated_by,txt:`원가 항목 (${c.item_name}) — ${(c.amount||0).toLocaleString()}억원`})),
+    {time:DATA.info.updated_at,who:DATA.info.updated_by,txt:`현장 기본정보 — ${DATA.info.name||'—'}`},
+  ].filter(x=>x.time).sort((a,b)=>new Date(b.time)-new Date(a.time)).slice(0,30);
+
+  const el=document.getElementById('history-list');
+  if(!all.length){ el.innerHTML='<div style="text-align:center;padding:32px;color:var(--tx3)">변경 이력 없음</div>'; return; }
+  el.innerHTML=all.map(x=>`
+    <div class="log-item">
+      <div class="log-dot"></div>
+      <div class="log-txt"><strong style="color:var(--tx)">${x.who||'—'}</strong>님이 ${x.txt}</div>
+      <div class="log-time">${new Date(x.time).toLocaleString('ko-KR')}</div>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════
+//  NAV / MODAL / UTILS
+// ══════════════════════════════════════════════════
+function gotoPage(id, btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  btn.classList.add('active');
+  if(id==='review') loadComments();
+}
+
+function showNameModal(){
+  document.getElementById('nameInput').value=myName;
+  document.getElementById('nameModal').style.display='flex';
+  setTimeout(()=>document.getElementById('nameInput').focus(),50);
+}
+function hideNameModal(){ document.getElementById('nameModal').style.display='none'; }
+function saveName(){
+  const v=document.getElementById('nameInput').value.trim();
+  if(!v){ toast('이름을 입력하세요','e'); return; }
+  myName=v; localStorage.setItem('pf_name',v);
+  document.getElementById('nameDisplay').textContent=v;
+  hideNameModal(); toast('이름이 설정되었습니다','s');
+}
+document.getElementById('nameInput').addEventListener('keydown',e=>{ if(e.key==='Enter') saveName(); });
+
+let tt;
+function toast(msg,type='s'){
+  const old=document.querySelector('.toast'); if(old) old.remove();
+  const t=document.createElement('div');
+  t.className='toast '+type; t.textContent=msg;
+  document.body.appendChild(t);
+  clearTimeout(tt); tt=setTimeout(()=>t.remove(),3500);
+}
+</script>
+</body>
+</html>
